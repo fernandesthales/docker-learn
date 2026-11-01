@@ -1,0 +1,47 @@
+name: API CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  api-tests:
+    name: Build and test API
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    env:
+      TEST_IMAGE: task-api:ci-${{ github.sha }}
+      COMPOSE_PROJECT_NAME: task-api-ci
+
+    steps:
+      - name: Download repository code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Validate test configuration
+        run: docker compose -f compose.test.yaml config -q
+
+      - name: Build application image
+        run: docker build -t "$TEST_IMAGE" .
+
+      - name: Run API tests
+        run: |
+          docker compose -f compose.test.yaml up \
+            --force-recreate \
+            --abort-on-container-exit \
+            --exit-code-from tests
+
+      - name: Show logs if something failed
+        if: failure()
+        run: docker compose -f compose.test.yaml logs --no-color
+
+      - name: Clean up test containers
+        if: always()
+        run: docker compose -f compose.test.yaml down --volumes
