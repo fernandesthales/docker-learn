@@ -1,0 +1,26 @@
+services:
+  db-test:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: tester
+      POSTGRES_PASSWORD: testpassword
+      POSTGRES_DB: tasks_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tester -d tasks_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  tests:
+    image: task-api:1.3.0
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgres://tester:testpassword@db-test:5432/tasks_test
+    depends_on:
+      db-test:
+        condition: service_healthy
+    volumes:
+      - ./test:/app/test:ro
+    command: ["node", "--test", "test/api.test.js"]

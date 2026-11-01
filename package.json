@@ -1,0 +1,18 @@
+{
+  "name": "task-api",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "description": "A small in-memory API for learning Docker",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  }
+}

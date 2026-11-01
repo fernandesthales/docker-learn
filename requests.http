@@ -1,0 +1,26 @@
+@base = http://localhost:3000
+@taskId = paste-the-id-from-create-response-here
+
+### Health
+GET {{base}}/health
+
+### List tasks
+GET {{base}}/tasks
+
+### Create a task
+POST {{base}}/tasks
+Content-Type: application/json
+
+{"title":"Learn Docker"}
+
+### Mark the task complete (set taskId above first)
+PATCH {{base}}/tasks/{{taskId}}
+Content-Type: application/json
+
+{"completed":true}
+
+### Delete the task
+DELETE {{base}}/tasks/{{taskId}}
+
+### App version
+GET {{base}}/version
