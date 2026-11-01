@@ -13,7 +13,7 @@ test('task lifecycle and invalid input over HTTP', async (t) => {
   assert.equal((await fetch(`${base}/tasks`, json('POST', { title: '  ' }))).status, 400);
   assert.equal((await fetch(`${base}/tasks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' })).status, 400);
   const created = await fetch(`${base}/tasks`, json('POST', { title: 'Learn Docker' }));
-  assert.equal(created.status, 200);
+  assert.equal(created.status, 201);
   const task = await created.json();
   assert.equal(task.completed, false);
   assert.equal((await (await fetch(`${base}/tasks`)).json()).length, 1);
