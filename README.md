@@ -1,129 +1,90 @@
-# Task API — your first Docker learning project
+# Taskroom — a live task board and deployment learning project
 
-A small Node.js API with no external dependencies. This is the starting application for your Docker exercise: run it locally first, then containerize it yourself. A Dockerfile is included. PostgreSQL is not included yet.
+React + Vite frontend, Node.js HTTP API, PostgreSQL, Server-Sent Events, and a single deployable application image. Three VPS environments promote the same image digest; database records stay separate.
 
-## Run in VS Code
+## Run locally
 
-1. Install Node.js 22 or newer if needed. Check with `node --version`.
-2. Extract the ZIP. Open the extracted `task-api` folder in VS Code (the folder containing `package.json`).
-3. Open Terminal → New Terminal and run:
+Requires Docker Desktop / Docker Engine with Compose v2.
 
 ```sh
-npm run dev
+docker compose -p taskroom-local -f compose.local.yaml up --build -d
 ```
 
-No `npm install` is required: everything uses Node's built-in modules.
-
-4. Visit http://localhost:3000/health in your browser. Expect `{"status":"ok","storage":"memory","version":"1.1.0"}`.
-5. Keep the terminal running. Use a second terminal for the requests below. Stop the server with Ctrl+C.
-
-`npm run dev` restarts the server when you edit code. `npm start` runs it without watching files. Both lose all tasks when the process restarts.
-
-## Try the API
-
-These curl examples work in macOS/Linux terminals. You can also use Postman with the same methods, URLs and JSON bodies. On Windows PowerShell, use Postman or the included requests file to avoid shell quoting differences.
-
-Create a task:
+Open http://localhost:3010 in two browser windows. Add a task, check it off, or delete it; the second window updates automatically. Local login is explicitly disabled and the port is bound only to localhost. This uses a new `taskroom-local` volume, not the original exercise's Dev volume.
 
 ```sh
-curl -i -X POST http://localhost:3000/tasks \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"Learn Docker"}'
+docker compose -p taskroom-local -f compose.local.yaml down
 ```
 
-The response includes a generated `id`. Copy it and replace `YOUR_TASK_ID` in the commands below.
+The named volume keeps your records. Adding `-v` deletes them.
 
-List tasks:
+## Development and files
+
+| File | Purpose |
+| --- | --- |
+| `web/src/main.jsx` | Board, login, filters, SSE client |
+| `web/src/style.css` | Responsive UI |
+| `src/app.js` | HTTP API, session routes, event stream, static frontend |
+| `src/auth.js` | Shared workspace password and signed HttpOnly session cookie |
+| `src/db.js` | PostgreSQL connection pool and task queries |
+| `src/migrate.js`, `migrations/` | Transactional, tracked schema migrations |
+| `Dockerfile` | Builds frontend, then packages backend and compiled assets |
+| `compose.local.yaml` | Local app and persistent database |
+| `compose.test.yaml` | Isolated API tests and disposable PostgreSQL |
+| `compose.browser-test.yaml` | Image-based browser tests with login enabled |
+| `deploy/` | VPS configuration, promotions, backups |
+| `.github/workflows/ci.yaml` | Build/test/publish and optional automatic Dev deployment |
+| `.github/workflows/promote.yaml` | Manual Stage or Prod promotion |
+
+The original `compose.yaml` is retained for the old tutorial. Use `compose.local.yaml` for this application; do not mix the two project names or replace old volumes.
+
+For frontend editing, `npm ci` then `npm run dev:web` runs Vite, proxying `/api` to a separately running backend on localhost:3000. The complete Docker route above needs no local Node installation.
+
+## Local checks
 
 ```sh
-curl http://localhost:3000/tasks
+npm ci
+npm run build
+node --test test/auth.test.js test/deploy.test.js
+docker build -t task-api:2.0.0 .
+docker compose -p taskroom-api-tests -f compose.test.yaml up --force-recreate --abort-on-container-exit --exit-code-from tests
+docker compose -p taskroom-api-tests -f compose.test.yaml down --volumes
 ```
 
-Complete a task:
+For real browser tests (macOS/Linux shell):
 
 ```sh
-curl -X PATCH http://localhost:3000/tasks/YOUR_TASK_ID \
-  -H 'Content-Type: application/json' \
-  -d '{"completed":true}'
+npx playwright install chromium
+export TEST_PASSWORD_HASH=$(node --input-type=module -e "import {hashPassword} from './src/auth.js'; console.log(hashPassword('test-board-password'))")
+docker compose -p taskroom-browser-tests -f compose.browser-test.yaml up -d --wait
+npm run test:e2e
+docker compose -p taskroom-browser-tests -f compose.browser-test.yaml down --volumes
 ```
 
-Delete a task (success is HTTP 204 with no response body):
+API tests verify persistence across an API process replacement against real PostgreSQL. Browser tests exercise login and synchronize changes between two independent sessions. Deployment-script tests use a fake Docker command to verify promotion selection, failed-release rollback, and stale Dev build rejection; they do not claim to deploy a real server.
 
-```sh
-curl -i -X DELETE http://localhost:3000/tasks/YOUR_TASK_ID
-```
+## Deployment behavior
 
-`requests.http` contains the same requests for use with a compatible VS Code HTTP client extension. Set its `taskId` variable manually after creating a task.
+- PR: build one application image, run API/auth and browser tests, publish nothing.
+- Push to `main`: build/test/publish that exact image to GHCR. If `DEPLOY_ENABLED=true`, deploy it to Dev by digest.
+- Manual **Promote release → stage**: copy the currently healthy Dev image digest into Stage.
+- Manual **Promote release → prod**: copy the currently healthy Stage image digest into Prod.
+- Promotions snapshot the source when the server obtains its deployment lock, not when the button is clicked. Later source updates do not change that selected release.
+- Separate Compose projects and environment files create three databases, networks, and volumes. Every environment uses the same application artifact with runtime configuration.
+- A server-wide lock serializes deployments and promotions. Older CI run numbers cannot replace a newer Dev deployment. GitHub may coalesce queued Dev deployments; the newest successful build should win, not every intermediate build.
 
-## Endpoints
+**Hosting is not activated by this PR.** Follow [the Hostinger runbook](docs/hostinger.md), configure secrets, then enable deployments. No existing VPS sites or proxy configuration are modified automatically.
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | / | Show API information |
-| GET | /health | Check that the process is responding |
-| GET | /tasks | List all tasks |
-| GET | /tasks/:id | Get one task |
-| POST | /tasks | Create using `{ "title": "Learn Docker" }` |
-| PATCH | /tasks/:id | Update using `{ "completed": true }` |
-| DELETE | /tasks/:id | Delete one task |
+## API
 
-Titles must have 1–200 characters after trimming. JSON writes require `Content-Type: application/json`. Missing tasks return 404; invalid input returns 400.
+The frontend uses `/api/tasks`, `/api/session`, `/api/login`, `/api/logout`, `/api/events`, `/api/version`, and `/api/ready`. Original `/tasks`, `/health`, `/ready`, and `/version` paths remain available. Hosted task routes require a session cookie and mutation requests require the configured Origin. `/` now serves the frontend.
 
-## Understand the files
+`/health` is liveness; `/ready` queries PostgreSQL and returns 503 on connection failure. `/version` includes app version, environment, and Git revision. SSE sends invalidation notifications; clients refetch the database state on connect, reconnect, and task changes.
 
-- `src/app.js`: HTTP routes, JSON validation, and in-memory task storage.
-- `src/server.js`: port configuration, listening, and shutdown.
-- `test/api.test.js`: an HTTP test of the task lifecycle and validation.
-- `package.json`: commands you run with npm.
-- `.dockerignore`: files to exclude from your future Docker build context.
+## Deliberate first-release boundaries
 
-Run the tests with `npm test`. They start their own server on a free port.
+One shared workspace password per environment, not individual user accounts. Sessions expire in 12 hours; logout clears the current browser cookie, while rotating SESSION_SECRET invalidates all sessions. The board is shared by everyone with its password. Login throttling is in-process and, behind a reverse proxy, may apply collectively to users; add proxy-level rate limiting for larger use.
 
-## Your next Docker exercises
+One API instance per environment. SSE notifications are process-local; multiple replicas would need PostgreSQL LISTEN/NOTIFY or Redis pub/sub. Deployments briefly interrupt requests, and EventSource reconnects. No zero-downtime claim.
 
-1. Read the included Dockerfile: it starts from a Node image, sets a working directory, copies the code, and runs `npm start`.
-2. Build your image and start a container with host port 3000 mapped to container port 3000.
-3. Repeat these API requests and inspect the container logs.
-4. Stop and replace the container. Observe that in-memory tasks disappear.
-5. Add PostgreSQL as a separate Compose service, change the API to store tasks there, and attach a named volume to the database service.
-
-This API binds to `0.0.0.0` so it can receive forwarded requests in a container. `PORT` defaults to `3000`. On macOS/Linux you can run `PORT=3001 npm start` if 3000 is occupied; in PowerShell use `$env:PORT=3001` before running `npm start`.
-
-This is a local learning app without authentication or persistent storage. No frontend is included.
-
-## Rebuild exercise: version 1.1.0
-
-This release changes the welcome message, adds version to /health, and adds GET /version.
-
-1. Extract this ZIP into a separate folder and open its task-api directory in VS Code, or replace the matching files in your existing project.
-2. From the folder containing the updated Dockerfile, build a distinctly tagged image:
-
-```sh
-docker buildx build --load -t task-api:1.1.0 .
-```
-
-If your previous container uses copied source, it still serves the old code after this build. If you previously used a bind mount and overwrite that mounted source, changes may appear immediately instead. The run command below uses no bind mount so you can practice image-based updates.
-
-3. Replace the old container (stopping it clears its in-memory tasks):
-
-```sh
-docker stop task-api-container
-docker rm task-api-container
-docker run --name task-api-container -p 3000:3000 -d task-api:1.1.0
-```
-
-If the old container no longer exists, skip the stop/remove commands.
-
-4. Open http://localhost:3000/version or run:
-
-```sh
-curl http://localhost:3000/version
-```
-
-Expected response:
-
-```json
-{"name":"task-api","version":"1.1.0"}
-```
-
-The image tag is a label; the version response comes from package.json copied into the image. Building alone does not replace a running container.
+Three environments share the VPS and therefore share its capacity and outage risk. Persistence is not backup. Back up production off-server and test restoration. Application rollback never reverses schema migrations; keep schema changes backward-compatible with the previous app release.

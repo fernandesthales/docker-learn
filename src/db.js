@@ -8,23 +8,15 @@ if (!process.env.DATABASE_URL) {
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  connectionTimeoutMillis: 5000
+  connectionTimeoutMillis: 5000,
+  query_timeout: 5000,
+  statement_timeout: 5000,
+  max: 5
 });
 
 pool.on('error', (error) => {
   console.error('Unexpected database connection error:', error);
 });
-
-// For this exercise, create the table on startup.
-// Later, we will move schema changes into migrations.
-await pool.query(`
-  CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    completed BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )
-`);
 
 const columns = `
   id,
