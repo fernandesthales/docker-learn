@@ -1,84 +1,109 @@
 name: API CI
-
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
-
 permissions:
   contents: read
-
 jobs:
   api-tests:
     name: Build and test API
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-
+    timeout-minutes: 25
     permissions:
       contents: read
       packages: write
-
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
     env:
       TEST_IMAGE: task-api:ci-${{ github.sha }}
       COMPOSE_PROJECT_NAME: task-api-ci
-
     steps:
-      - name: Download repository code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-
+      - name: Install browser test tools
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Check deployment scripts
+        run: |
+          bash -n deploy/release.sh deploy/backup.sh
+          node --test test/deploy.test.js
       - name: Validate test configuration
         run: docker compose -f compose.test.yaml config -q
-
       - name: Build application image
         run: |
           docker build \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             -t "$TEST_IMAGE" .
-
-      - name: Run API tests
+      - name: Run API and auth tests
         run: |
           docker compose -f compose.test.yaml up \
-            --force-recreate \
-            --abort-on-container-exit \
-            --exit-code-from tests
-
-      - name: Log in to GitHub Container Registry
+            --force-recreate --abort-on-container-exit --exit-code-from tests
+      - name: Run browser tests against the same image
+        run: |
+          export TEST_PASSWORD_HASH=$(node --input-type=module -e "import {hashPassword} from './src/auth.js'; console.log(hashPassword('test-board-password'))")
+          docker compose -p task-api-browser -f compose.browser-test.yaml up -d --wait --wait-timeout 180
+          npm run test:e2e
+      - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          printf '%s' "$GHCR_TOKEN" |
-            docker login ghcr.io \
-              --username "$GITHUB_ACTOR" \
-              --password-stdin
-
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
       - name: Publish tested image
+        id: publish
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
-          IMAGE_PATH="ghcr.io/${GITHUB_REPOSITORY,,}"
-          IMAGE_TAG="sha-${GITHUB_SHA}-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          PUBLISHED_IMAGE="${IMAGE_PATH}:${IMAGE_TAG}"
-
-          docker tag "$TEST_IMAGE" "$PUBLISHED_IMAGE"
-          docker push "$PUBLISHED_IMAGE"
-
-          echo "Published image: $PUBLISHED_IMAGE"
-          echo "### Published image" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`$PUBLISHED_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Show logs if something failed
+          image_path="ghcr.io/${GITHUB_REPOSITORY,,}"
+          tag="sha-${GITHUB_SHA}-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker tag "$TEST_IMAGE" "$image_path:$tag"
+          docker push "$image_path:$tag"
+          digest=$(docker image inspect "$image_path:$tag" --format '{{index .RepoDigests 0}}')
+          [[ "$digest" == "$image_path@sha256:"* ]]
+          echo "image=$digest" >> "$GITHUB_OUTPUT"
+          echo "### Tested release" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Failure logs
         if: failure()
-        run: docker compose -f compose.test.yaml logs --no-color
-
-      - name: Clean up test containers
+        env:
+          TEST_PASSWORD_HASH: unused-for-logs
+        run: |
+          docker compose -f compose.test.yaml logs --no-color || true
+          docker compose -p task-api-browser -f compose.browser-test.yaml logs --no-color || true
+      - name: Cleanup
         if: always()
-        run: docker compose -f compose.test.yaml down --volumes
-
-      - name: Log out of registry
-        if: always()
-        run: docker logout ghcr.io
+        env:
+          TEST_PASSWORD_HASH: unused-for-cleanup
+        run: |
+          docker compose -f compose.test.yaml down --volumes
+          docker compose -p task-api-browser -f compose.browser-test.yaml down --volumes
+          docker logout ghcr.io
+  deploy-dev:
+    name: Deploy Dev
+    needs: api-tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: dev
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/vps
+        with:
+          environment: dev
+          image: ${{ needs.api-tests.outputs.image }}
+          revision: ${{ github.sha }}
+          sequence: ${{ github.run_number }}
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          user: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          known-hosts: ${{ secrets.VPS_KNOWN_HOSTS }}

@@ -1,0 +1,67 @@
+name: Deploy to VPS
+description: Invoke the installed release script over pinned-host SSH.
+inputs:
+  environment:
+    required: true
+    description: dev, stage or prod
+  image:
+    default: ""
+    description: Immutable image reference (Dev only)
+  revision:
+    default: ""
+    description: Git commit (Dev only)
+  sequence:
+    default: ""
+    description: Build run number (Dev only)
+  host:
+    required: true
+    description: VPS hostname or IPv4
+  port:
+    default: "22"
+    description: SSH port
+  user:
+    required: true
+    description: Deployment user
+  key:
+    required: true
+    description: SSH private key from GitHub secrets
+  known-hosts:
+    required: true
+    description: Verified SSH known_hosts entry
+runs:
+  using: composite
+  steps:
+    - name: Deploy exact release
+      shell: bash
+      env:
+        TARGET_ENV: ${{ inputs.environment }}
+        IMAGE: ${{ inputs.image }}
+        REVISION: ${{ inputs.revision }}
+        SEQUENCE: ${{ inputs.sequence }}
+        VPS_HOST: ${{ inputs.host }}
+        VPS_PORT: ${{ inputs.port }}
+        VPS_USER: ${{ inputs.user }}
+        VPS_KEY: ${{ inputs.key }}
+        VPS_KNOWN_HOSTS: ${{ inputs.known-hosts }}
+      run: |
+        set -euo pipefail
+        [[ "$VPS_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+        [[ "$VPS_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]
+        [[ "$VPS_PORT" =~ ^[0-9]+$ ]]
+        [[ "$TARGET_ENV" =~ ^(dev|stage|prod)$ ]]
+        private_dir=$(mktemp -d)
+        trap 'rm -rf "$private_dir"' EXIT
+        printf '%s\n' "$VPS_KEY" > "$private_dir/key"
+        printf '%s\n' "$VPS_KNOWN_HOSTS" > "$private_dir/known_hosts"
+        chmod 600 "$private_dir/key" "$private_dir/known_hosts"
+        command="/opt/taskroom/deploy/release.sh $TARGET_ENV"
+        if [[ "$TARGET_ENV" == dev ]]; then
+          [[ "$IMAGE" =~ ^ghcr\.io/fernandesthales/docker-learn@sha256:[a-f0-9]{64}$ ]]
+          [[ "$REVISION" =~ ^[a-f0-9]{40}$ && "$SEQUENCE" =~ ^[0-9]+$ ]]
+          command="$command $IMAGE $REVISION $SEQUENCE"
+        fi
+        ssh -i "$private_dir/key" -p "$VPS_PORT" \
+          -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="$private_dir/known_hosts" \
+          -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+          "$VPS_USER@$VPS_HOST" "$command"

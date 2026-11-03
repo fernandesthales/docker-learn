@@ -1,0 +1,10 @@
+# Copy to deploy/envs/dev.env, stage.env, and prod.env on the VPS only.
+# Each environment MUST have distinct passwords and session secrets.
+# Suggested local ports: dev=3101 stage=3102 prod=3103 (check availability).
+APP_PORT=3101
+PUBLIC_ORIGIN=https://dev.tasks.example.com
+# Use npm run secrets locally; copy the generated values into this file.
+# Database password must be the generated hex value (URL-safe).
+POSTGRES_PASSWORD=REPLACE_WITH_GENERATED_HEX
+AUTH_PASSWORD_HASH=REPLACE_WITH_GENERATED_HASH
+SESSION_SECRET=REPLACE_WITH_GENERATED_SECRET

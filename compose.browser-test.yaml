@@ -1,0 +1,26 @@
+services:
+  db-test:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: tester
+      POSTGRES_PASSWORD: testpassword
+      POSTGRES_DB: tasks_test
+    tmpfs: ["/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tester -d tasks_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  app:
+    image: ${TEST_IMAGE:-task-api:2.0.0}
+    ports: ["127.0.0.1:3011:3000"]
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgres://tester:testpassword@db-test:5432/tasks_test
+      AUTH_PASSWORD_HASH: ${TEST_PASSWORD_HASH:?Generate the test password hash}
+      SESSION_SECRET: test-only-session-secret-at-least-32-characters
+      PUBLIC_ORIGIN: http://127.0.0.1:3011
+      COOKIE_SECURE: "false"
+    depends_on:
+      db-test:
+        condition: service_healthy
