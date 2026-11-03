@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
+    permissions:
+      contents: read
+      packages: write
+
     env:
       TEST_IMAGE: task-api:ci-${{ github.sha }}
       COMPOSE_PROJECT_NAME: task-api-ci
@@ -29,7 +33,11 @@ jobs:
         run: docker compose -f compose.test.yaml config -q
 
       - name: Build application image
-        run: docker build -t "$TEST_IMAGE" .
+        run: |
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t "$TEST_IMAGE" .
 
       - name: Run API tests
         run: |
@@ -38,6 +46,31 @@ jobs:
             --abort-on-container-exit \
             --exit-code-from tests
 
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" |
+            docker login ghcr.io \
+              --username "$GITHUB_ACTOR" \
+              --password-stdin
+
+      - name: Publish tested image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          IMAGE_PATH="ghcr.io/${GITHUB_REPOSITORY,,}"
+          IMAGE_TAG="sha-${GITHUB_SHA}-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PUBLISHED_IMAGE="${IMAGE_PATH}:${IMAGE_TAG}"
+
+          docker tag "$TEST_IMAGE" "$PUBLISHED_IMAGE"
+          docker push "$PUBLISHED_IMAGE"
+
+          echo "Published image: $PUBLISHED_IMAGE"
+          echo "### Published image" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$PUBLISHED_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Show logs if something failed
         if: failure()
         run: docker compose -f compose.test.yaml logs --no-color
@@ -45,3 +78,7 @@ jobs:
       - name: Clean up test containers
         if: always()
         run: docker compose -f compose.test.yaml down --volumes
+
+      - name: Log out of registry
+        if: always()
+        run: docker logout ghcr.io
