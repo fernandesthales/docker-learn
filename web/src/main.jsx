@@ -90,7 +90,7 @@ function App() {
   return <div className="shell">
     <aside className="sidebar">
       <a className="brand" href="/" aria-label="Taskroom home"><span className="brand-mark">t.</span>taskroom<span className="brand-dot">●</span></a>
-      <div className="workspace-label">YOUR WORKSPACE</div>
+      <div className="workspace-label">YOUR WORKSPACE ---- 22</div>
       <div className="nav-active"><span>▦</span> Team board <span className="count">{tasks.length}</span></div>
       <div className="sidebar-note"><span className="note-icon">↗</span><h3>A little less busy.<br />A little more done.</h3><p>One shared space for the things that move your team forward.</p></div>
       <div className="environment"><span className={`env-dot ${meta?.environment || ''}`}></span><span>{meta?.environment || 'Connecting'} environment</span></div>
