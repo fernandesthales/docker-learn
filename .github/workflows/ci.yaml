@@ -54,10 +54,8 @@ jobs:
           docker compose -f compose.test.yaml up \
             --force-recreate --abort-on-container-exit --exit-code-from tests
       # Start a separate browser-test stack, wait for readiness, then run Playwright.
-      # The generated password hash is only for this temporary test environment.
       - name: Run browser tests against the same image
         run: |
-          export TEST_PASSWORD_HASH=$(node --input-type=module -e "import {hashPassword} from './src/auth.js'; console.log(hashPassword('test-board-password'))")
           docker compose -p task-api-browser -f compose.browser-test.yaml up -d --wait --wait-timeout 180
           npm run test:e2e
       # Only main push runs authenticate to GitHub Container Registry and publish.
@@ -82,20 +80,15 @@ jobs:
           echo "image=$digest" >> "$GITHUB_OUTPUT"
           echo "### Tested release" >> "$GITHUB_STEP_SUMMARY"
           echo "\`$digest\`" >> "$GITHUB_STEP_SUMMARY"
-      # Collect both stacks' logs after a failure. Placeholder hashes allow Compose
-      # to resolve configuration without needing the earlier shell's variables.
+      # Collect both stacks' logs after a failure.
       - name: Failure logs
         if: failure()
-        env:
-          TEST_PASSWORD_HASH: unused-for-logs
         run: |
           docker compose -f compose.test.yaml logs --no-color || true
           docker compose -p task-api-browser -f compose.browser-test.yaml logs --no-color || true
       # Always remove temporary test containers/volumes and registry credentials.
       - name: Cleanup
         if: always()
-        env:
-          TEST_PASSWORD_HASH: unused-for-cleanup
         run: |
           docker compose -f compose.test.yaml down --volumes
           docker compose -p task-api-browser -f compose.browser-test.yaml down --volumes

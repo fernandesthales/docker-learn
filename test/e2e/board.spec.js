@@ -1,9 +1,30 @@
 import { test, expect } from '@playwright/test';
 
-async function login(page) {
+async function register(page) {
+  const email = `user-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto('/');
-  await page.getByLabel('Workspace password').fill('test-board-password');
-  await page.getByRole('button', { name: 'Open workspace' }).click();
+  await page
+    .getByRole('button', { name: 'Create an account', exact: true })
+    .click();
+  await page.getByLabel('Name', { exact: true }).fill('Test User');
+  await page.getByLabel('Age (optional)').fill('28');
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('test-board-password');
+  await page
+    .getByRole('button', { name: 'Create account', exact: true })
+    .click();
+  await expect(page.getByText('Live updates', { exact: true })).toBeVisible();
+  return email;
+}
+async function login(page, email) {
+  await page.goto('/');
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill('test-board-password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByText('Live updates', { exact: true })).toBeVisible();
 }
 test('two browser sessions synchronize task creation, completion and deletion', async ({
@@ -13,13 +34,8 @@ test('two browser sessions synchronize task creation, completion and deletion', 
   const secondContext = await browser.newContext();
   const second = await secondContext.newPage();
   try {
-    await login(page);
-    await second.goto(process.env.E2E_BASE_URL || 'http://127.0.0.1:3011');
-    await second.getByLabel('Workspace password').fill('test-board-password');
-    await second.getByRole('button', { name: 'Open workspace' }).click();
-    await expect(
-      second.getByText('Live updates', { exact: true })
-    ).toBeVisible();
+    const email = await register(page);
+    await login(second, email);
     const title = `Live browser task ${Date.now()}`;
     await page.getByLabel('New task').fill(title);
     await page.getByRole('button', { name: 'Add task' }).click();
@@ -38,7 +54,7 @@ test('two browser sessions synchronize task creation, completion and deletion', 
     await firstRow.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(otherRow).toHaveCount(0);
     await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByLabel('Workspace password')).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
     await expect(second.getByLabel('New task')).toBeVisible();
   } finally {
     await secondContext.close();
@@ -50,10 +66,13 @@ test('mobile board loads and invalid login stays protected', async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await page.getByLabel('Workspace password').fill('incorrect');
-  await page.getByRole('button', { name: 'Open workspace' }).click();
-  await expect(page.getByRole('alert')).toContainText('Incorrect password');
-  await login(page);
+  await page.getByLabel('Email', { exact: true }).fill('missing@example.com');
+  await page.getByLabel('Password', { exact: true }).fill('incorrect');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText(
+    'Incorrect email or password'
+  );
+  await register(page);
   await expect(page.getByLabel('New task')).toBeVisible();
   expect(
     await page.evaluate(
@@ -67,7 +86,12 @@ test('board loads and creates tasks when live updates are unavailable', async ({
 }) => {
   const tasks = [];
   await page.route('**/api/session', (route) =>
-    route.fulfill({ json: { authenticated: true, authDisabled: true } })
+    route.fulfill({
+      json: {
+        authenticated: true,
+        user: { id: 'test-user', name: 'Test User' }
+      }
+    })
   );
   await page.route('**/api/version', (route) =>
     route.fulfill({
@@ -90,7 +114,7 @@ test('board loads and creates tasks when live updates are unavailable', async ({
     }
   });
   await page.goto('/');
-  await expect(page.getByText('A fresh start for your team')).toBeVisible();
+  await expect(page.getByText('A fresh start for you')).toBeVisible();
   const add = page.getByRole('button', { name: 'Add task' });
   await expect(add).toBeDisabled();
   await expect(add).toHaveCSS('cursor', 'not-allowed');
@@ -103,4 +127,40 @@ test('board loads and creates tasks when live updates are unavailable', async ({
   );
   await expect(page.getByLabel('New task')).toHaveValue('');
   await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('different accounts have private boards and retain tasks after login', async ({
+  page,
+  browser
+}) => {
+  const otherContext = await browser.newContext();
+  try {
+    const email = await register(page);
+    await page.getByLabel('New task').fill('Private task for Alice');
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByTestId('task-row')).toContainText(
+      'Private task for Alice'
+    );
+    const other = await otherContext.newPage();
+    await register(other);
+    await expect(other.getByText('A fresh start for you')).toBeVisible();
+    await other.getByLabel('New task').fill('Private task for Bob');
+    await other.getByRole('button', { name: 'Add task' }).click();
+    await expect(other.getByTestId('task-row')).toHaveCount(1);
+    await expect(other.getByTestId('task-row')).toContainText(
+      'Private task for Bob'
+    );
+    await page.reload();
+    await expect(page.getByTestId('task-row')).toHaveCount(1);
+    await expect(page.getByTestId('task-row')).toContainText(
+      'Private task for Alice'
+    );
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await login(page, email);
+    await expect(page.getByTestId('task-row')).toContainText(
+      'Private task for Alice'
+    );
+  } finally {
+    await otherContext.close();
+  }
 });

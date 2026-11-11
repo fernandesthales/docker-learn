@@ -16,7 +16,9 @@ services:
     image: ${TEST_IMAGE:-task-api:2.0.0}
     environment:
       APP_ENV: test
-      AUTH_DISABLED: 'true'
+      SESSION_SECRET: test-only-session-secret-at-least-32-characters
+      PUBLIC_ORIGIN: http://test.local
+      COOKIE_SECURE: 'false'
       DATABASE_URL: postgres://tester:testpassword@db-test:5432/tasks_test
     depends_on:
       db-test:

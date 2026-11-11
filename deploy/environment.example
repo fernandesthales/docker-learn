@@ -6,5 +6,4 @@ PUBLIC_ORIGIN=https://dev.tasks.example.com
 # Use npm run secrets locally; copy the generated values into this file.
 # Database password must be the generated hex value (URL-safe).
 POSTGRES_PASSWORD=REPLACE_WITH_GENERATED_HEX
-AUTH_PASSWORD_HASH=REPLACE_WITH_GENERATED_HASH
 SESSION_SECRET=REPLACE_WITH_GENERATED_SECRET

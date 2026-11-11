@@ -47,7 +47,7 @@ Copy `deploy/environment.example` into each of:
 - `/opt/taskroom/deploy/envs/stage.env`
 - `/opt/taskroom/deploy/envs/prod.env`
 
-Run `npm run secrets` on your own computer three times. Each run prints a new board login password, its hash, a session secret, and a database password. Store the login password securely; copy only the hash and other configuration into the server env file. Never commit those generated values or post them in chat.
+Run `npm run secrets` on your own computer three times. Each run prints a session secret and a database password. Copy these into the server env file. Users create their own accounts through the registration form. Never commit those generated values or post them in chat.
 
 Configure:
 
@@ -103,7 +103,7 @@ Only AFTER the server files, credentials, DNS, and proxy are configured, set rep
 
 ## 7. First deployment and promotions
 
-Merge the PR only after CI passes. If you enabled deployments after the merge, rerun that main workflow or push a new legitimate change. Confirm Deploy Dev succeeds, open the HTTPS Dev URL, and sign in with the Dev board password. Create a task and check live updates from a second browser.
+Merge the PR only after CI passes. If you enabled deployments after the merge, rerun that main workflow or push a new legitimate change. Confirm Deploy Dev succeeds, open the HTTPS Dev URL, and create an individual account. Create a task and check live updates from a second browser.
 
 From Actions → Promote release → Run workflow → branch main:
 

@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 
+// Shared HTTP helper: JSON requests go through /api (proxied by Vite in development).
+// The browser sends same-origin session cookies automatically, including HttpOnly ones.
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, {
     ...options,
@@ -17,29 +19,41 @@ async function api(path, options = {}) {
       { status: response.status }
     );
   }
+  // DELETE returns 204 with no body, so there is no JSON to parse.
   return response.status === 204 ? null : response.json();
 }
 
 function App() {
+  // null means the initial session check is pending; authenticated selects login or board.
   const [session, setSession] = useState(null);
   const [meta, setMeta] = useState(null);
   const [tasks, setTasks] = useState([]);
+  // Controlled inputs: React state holds the current task and account form values.
   const [title, setTitle] = useState('');
   const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [age, setAge] = useState('');
+  const [registering, setRegistering] = useState(false);
+  // Filters change the visible list locally without modifying stored tasks.
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [connection, setConnection] = useState('connecting');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // busy identifies the pending action; deleting identifies the row awaiting confirmation.
   const [busy, setBusy] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  // A ref survives renders without causing them. This counter identifies the newest refresh.
   const serial = useRef(0);
 
+  // An expired or missing session sends the user back to the account form.
   function report(error) {
     setError(error.message);
     if (error.status === 401) setSession({ authenticated: false });
   }
   async function refresh() {
+    // Requests can finish out of order. Only the latest request may update the board.
     const sequence = ++serial.current;
     try {
       const data = await api('/tasks');
@@ -54,6 +68,7 @@ function App() {
       }
     }
   }
+  // Fetch identity and deployment metadata together; neither request depends on the other.
   async function initialize() {
     setError('');
     try {
@@ -67,17 +82,27 @@ function App() {
       report(error);
     }
   }
+  // An empty dependency array runs initialization when this component mounts.
   useEffect(() => {
     initialize();
   }, []);
+  // Recreate the subscription whenever login status or account identity changes.
   useEffect(() => {
     if (!session?.authenticated) {
       setTasks([]);
       return;
     }
+    // Start each account with a fresh board view and fetch its own tasks.
+    setTasks([]);
+    setTitle('');
+    setQuery('');
+    setFilter('all');
+    setDeleting(null);
     setLoading(true);
     // Load tasks even if the proxy delays or blocks the live-update stream.
     refresh();
+    // Server-Sent Events (SSE) keep one HTTP connection open for server notifications.
+    // EventSource reconnects automatically; each notification triggers a fresh API read.
     const stream = new EventSource('/api/events');
     stream.addEventListener('connected', () => {
       setConnection('live');
@@ -90,22 +115,27 @@ function App() {
     // Refetch on reconnect and focus: events are notifications, the DB is truth.
     const focus = () => refresh();
     window.addEventListener('focus', focus);
+    // Detect session expiration or an account switch made in another browser tab.
     const sessionCheck = setInterval(async () => {
       try {
         const current = await api('/session');
-        if (!current.authenticated) setSession(current);
+        if (!current.authenticated || current.user?.id !== session.user?.id)
+          setSession(current);
       } catch {
         setConnection('reconnecting');
       }
     }, 30_000);
+    // React calls cleanup before rerunning this effect and when the component unmounts.
+    // Invalidate outstanding refreshes so an old response cannot repopulate the board.
     return () => {
       stream.close();
       ++serial.current;
       clearInterval(sessionCheck);
       window.removeEventListener('focus', focus);
     };
-  }, [session?.authenticated]);
+  }, [session?.authenticated, session?.user?.id]);
 
+  // All task writes share pending/error handling and reload the saved state afterward.
   async function mutate(key, path, method, body) {
     setBusy(key);
     setError('');
@@ -123,15 +153,23 @@ function App() {
       setBusy(null);
     }
   }
+  // One form handles login and registration; preventDefault avoids a full page reload.
+  // Number inputs still supply strings, so convert age before sending it to the API.
   async function login(event) {
     event.preventDefault();
     setBusy('login');
     setError('');
     try {
       setSession(
-        await api('/login', {
+        await api(registering ? '/register' : '/login', {
           method: 'POST',
-          body: JSON.stringify({ password })
+          body: JSON.stringify({
+            email,
+            password,
+            ...(registering
+              ? { name, age: age === '' ? null : Number(age) }
+              : {})
+          })
         })
       );
       setPassword('');
@@ -141,6 +179,7 @@ function App() {
       setBusy(null);
     }
   }
+  // The server clears the HttpOnly cookie; updating session triggers effect cleanup.
   async function logout() {
     try {
       await api('/logout', { method: 'POST' });
@@ -150,6 +189,7 @@ function App() {
       report(error);
     }
   }
+  // Derive counts and visible rows from tasks instead of storing duplicate state.
   const completed = tasks.filter((t) => t.completed).length;
   const visible = tasks.filter(
     (t) =>
@@ -163,10 +203,11 @@ function App() {
           <span className="brand-mark">t.</span>taskroom
           <span className="brand-dot">●</span>
         </a>
-        <div className="workspace-label">YOUR WORKSPACE ---- 22</div>
+        <div className="workspace-label">
+          {session?.user?.name || 'YOUR WORKSPACE'}
+        </div>
         <div className="nav-active">
-          <span>▦</span> Team board{' '}
-          <span className="count">{tasks.length}</span>
+          <span>▦</span> My tasks <span className="count">{tasks.length}</span>
         </div>
         <div className="sidebar-note">
           <span className="note-icon">↗</span>
@@ -174,7 +215,7 @@ function App() {
             A little less busy.
             <br />A little more done.
           </h3>
-          <p>One shared space for the things that move your team forward.</p>
+          <p>Your private space for the things you want to get done.</p>
         </div>
         <div className="environment">
           <span className={`env-dot ${meta?.environment || ''}`}></span>
@@ -187,8 +228,7 @@ function App() {
       <main>
         <header className="topbar">
           <span>
-            Workspace <span className="slash">/</span>{' '}
-            <strong>Team board</strong>
+            Workspace <span className="slash">/</span> <strong>My tasks</strong>
           </span>
           <div className="top-actions">
             {session?.authenticated && (
@@ -197,7 +237,7 @@ function App() {
                 {connection === 'live' ? 'Live updates' : 'Reconnecting…'}
               </span>
             )}
-            {session?.authenticated && !session.authDisabled && (
+            {session?.authenticated && (
               <button className="text-button" onClick={logout}>
                 Sign out
               </button>
@@ -208,8 +248,8 @@ function App() {
           <div className="eyebrow">MAKE ROOM FOR PROGRESS</div>
           <div className="heading">
             <div>
-              <h1>Your team's next steps.</h1>
-              <p>Small tasks. Shared momentum. Everything in sync.</p>
+              <h1>Your next steps.</h1>
+              <p>Your tasks, your progress. Everything in sync.</p>
             </div>
             <span className="board-symbol">✳</span>
           </div>
@@ -221,25 +261,85 @@ function App() {
               )}
             </div>
           )}
+          {/* Render one of three states: connecting, account form, or private task board. */}
           {session === null ? (
             <div className="empty">Connecting to your workspace…</div>
           ) : !session.authenticated ? (
             <form className="login card" onSubmit={login}>
-              <span className="eyebrow">WELCOME BACK</span>
-              <h2>Enter your workspace</h2>
-              <p>Use the board password for this environment.</p>
-              <label htmlFor="password">Workspace password</label>
+              <span className="eyebrow">
+                {registering ? 'GET STARTED' : 'WELCOME BACK'}
+              </span>
+              <h2>
+                {registering
+                  ? 'Create your account'
+                  : 'Sign in to your account'}
+              </h2>
+              <p>Your tasks are private to your account.</p>
+              {/* Profile fields are only needed when creating an account. */}
+              {registering && (
+                <>
+                  <label htmlFor="name">Name</label>
+                  <input
+                    id="name"
+                    autoComplete="name"
+                    required
+                    maxLength={100}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                  <label htmlFor="age">Age (optional)</label>
+                  <input
+                    id="age"
+                    type="number"
+                    min="0"
+                    max="150"
+                    step="1"
+                    value={age}
+                    onChange={(e) => setAge(e.target.value)}
+                  />
+                </>
+              )}
+              <label htmlFor="email">Email</label>
+              <input
+                id="email"
+                type="email"
+                autoComplete="email"
+                required
+                maxLength={254}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <label htmlFor="password">Password</label>
               <input
                 id="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete={registering ? 'new-password' : 'current-password'}
+                minLength={registering ? 12 : undefined}
                 required
                 maxLength={256}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
               <button className="primary" disabled={busy === 'login'}>
-                {busy === 'login' ? 'Signing in…' : 'Open workspace →'}
+                {busy === 'login'
+                  ? 'Please wait…'
+                  : registering
+                    ? 'Create account'
+                    : 'Sign in'}
+              </button>
+              <button
+                type="button"
+                className="text-button"
+                disabled={!!busy}
+                onClick={() => {
+                  setRegistering(!registering);
+                  setPassword('');
+                  setError('');
+                }}
+              >
+                {registering
+                  ? 'Already have an account? Sign in'
+                  : 'Create an account'}
               </button>
             </form>
           ) : (
@@ -328,6 +428,7 @@ function App() {
                   <span>CREATED</span>
                   <span />
                 </div>
+                {/* Distinguish loading from an empty board or an empty filtered result. */}
                 {loading ? (
                   <div className="empty">Loading your tasks…</div>
                 ) : !visible.length ? (
@@ -336,12 +437,12 @@ function App() {
                     <h3>
                       {tasks.length
                         ? 'Nothing in this view'
-                        : 'A fresh start for your team'}
+                        : 'A fresh start for you'}
                     </h3>
                     <p>
                       {tasks.length
                         ? 'Try another filter or search.'
-                        : 'Add your first task above. Everyone on this board will see it.'}
+                        : 'Add your first task above. Only you can see it.'}
                     </p>
                   </div>
                 ) : (
@@ -371,6 +472,7 @@ function App() {
                             day: 'numeric'
                           }).format(new Date(task.createdAt))}
                         </time>
+                        {/* The first click asks for confirmation; only Delete sends a request. */}
                         <div className="delete-area">
                           {deleting === task.id ? (
                             <>
@@ -412,7 +514,7 @@ function App() {
                   <span>Changes sync across open browsers</span>
                 </footer>
               </section>
-              <p className="bottom-note">A shared board. A clearer day.</p>
+              <p className="bottom-note">Your own board. A clearer day.</p>
             </>
           )}
         </div>
@@ -420,4 +522,5 @@ function App() {
     </div>
   );
 }
+// Attach the React application to the root element provided by web/index.html.
 createRoot(document.getElementById('root')).render(<App />);

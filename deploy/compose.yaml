@@ -10,7 +10,6 @@ services:
       APP_ENV: ${ENVIRONMENT:?Choose dev stage or prod}
       APP_REVISION: ${RELEASE_REVISION:?Release commit is required}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set the exact HTTPS origin}
-      AUTH_PASSWORD_HASH: ${AUTH_PASSWORD_HASH:?Generate an environment password}
       SESSION_SECRET: ${SESSION_SECRET:?Generate an environment session secret}
       COOKIE_SECURE: 'true'
       DATABASE_URL: postgres://app:${POSTGRES_PASSWORD:?Generate a database password}@db:5432/tasks
