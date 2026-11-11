@@ -2,10 +2,10 @@
 services:
   app:
     build: .
-    ports: ["127.0.0.1:3010:3000"]
+    ports: ['127.0.0.1:3010:3000']
     environment:
       APP_ENV: local
-      AUTH_DISABLED: "true"
+      AUTH_DISABLED: 'true'
       DATABASE_URL: postgres://app:localpassword@db:5432/tasks
     depends_on:
       db:
@@ -16,9 +16,9 @@ services:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: localpassword
       POSTGRES_DB: tasks
-    volumes: ["local-data:/var/lib/postgresql/data"]
+    volumes: ['local-data:/var/lib/postgresql/data']
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d tasks"]
+      test: ['CMD-SHELL', 'pg_isready -U app -d tasks']
       interval: 2s
       timeout: 3s
       retries: 20

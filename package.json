@@ -13,6 +13,8 @@
     "test": "node --test test/*.test.js",
     "build": "vite build",
     "dev:web": "vite --host 127.0.0.1",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test:e2e": "playwright test",
     "secrets": "node scripts/generate-secrets.js"
   },
@@ -23,6 +25,7 @@
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
+    "prettier": "3.9.10",
     "vite": "^8.3.5"
   }
 }

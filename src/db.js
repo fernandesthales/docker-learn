@@ -65,8 +65,5 @@ export async function updateTask(id, completed) {
 }
 
 export async function deleteTask(id) {
-  await pool.query(
-    'DELETE FROM tasks WHERE id = $1',
-    [id]
-  );
+  await pool.query('DELETE FROM tasks WHERE id = $1', [id]);
 }

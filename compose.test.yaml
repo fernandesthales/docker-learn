@@ -8,7 +8,7 @@ services:
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tester -d tasks_test"]
+      test: ['CMD-SHELL', 'pg_isready -U tester -d tasks_test']
       interval: 2s
       timeout: 3s
       retries: 20
@@ -16,13 +16,13 @@ services:
     image: ${TEST_IMAGE:-task-api:2.0.0}
     environment:
       APP_ENV: test
-      AUTH_DISABLED: "true"
+      AUTH_DISABLED: 'true'
       DATABASE_URL: postgres://tester:testpassword@db-test:5432/tasks_test
     depends_on:
       db-test:
         condition: service_healthy
     volumes:
       - ./test:/app/test:ro
-    command: ["node", "--test", "test/api.test.js", "test/auth.test.js"]
+    command: ['node', '--test', 'test/api.test.js', 'test/auth.test.js']
     healthcheck:
       disable: true

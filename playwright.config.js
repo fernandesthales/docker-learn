@@ -4,5 +4,9 @@ export default defineConfig({
   timeout: 30000,
   retries: 0,
   workers: 1,
-  use: { baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:3011', browserName: 'chromium', trace: 'retain-on-failure' }
+  use: {
+    baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:3011',
+    browserName: 'chromium',
+    trace: 'retain-on-failure'
+  }
 });

@@ -20,25 +20,43 @@ The named volume keeps your records. Adding `-v` deletes them.
 
 ## Development and files
 
-| File | Purpose |
-| --- | --- |
-| `web/src/main.jsx` | Board, login, filters, SSE client |
-| `web/src/style.css` | Responsive UI |
-| `src/app.js` | HTTP API, session routes, event stream, static frontend |
-| `src/auth.js` | Shared workspace password and signed HttpOnly session cookie |
-| `src/db.js` | PostgreSQL connection pool and task queries |
-| `src/migrate.js`, `migrations/` | Transactional, tracked schema migrations |
-| `Dockerfile` | Builds frontend, then packages backend and compiled assets |
-| `compose.local.yaml` | Local app and persistent database |
-| `compose.test.yaml` | Isolated API tests and disposable PostgreSQL |
-| `compose.browser-test.yaml` | Image-based browser tests with login enabled |
-| `deploy/` | VPS configuration, promotions, backups |
-| `.github/workflows/ci.yaml` | Build/test/publish and optional automatic Dev deployment |
-| `.github/workflows/promote.yaml` | Manual Stage or Prod promotion |
+| File                             | Purpose                                                      |
+| -------------------------------- | ------------------------------------------------------------ |
+| `web/src/main.jsx`               | Board, login, filters, SSE client                            |
+| `web/src/style.css`              | Responsive UI                                                |
+| `src/app.js`                     | HTTP API, session routes, event stream, static frontend      |
+| `src/auth.js`                    | Shared workspace password and signed HttpOnly session cookie |
+| `src/db.js`                      | PostgreSQL connection pool and task queries                  |
+| `src/migrate.js`, `migrations/`  | Transactional, tracked schema migrations                     |
+| `Dockerfile`                     | Builds frontend, then packages backend and compiled assets   |
+| `compose.local.yaml`             | Local app and persistent database                            |
+| `compose.test.yaml`              | Isolated API tests and disposable PostgreSQL                 |
+| `compose.browser-test.yaml`      | Image-based browser tests with login enabled                 |
+| `deploy/`                        | VPS configuration, promotions, backups                       |
+| `.github/workflows/ci.yaml`      | Build/test/publish and optional automatic Dev deployment     |
+| `.github/workflows/promote.yaml` | Manual Stage or Prod promotion                               |
 
 The original `compose.yaml` is retained for the old tutorial. Use `compose.local.yaml` for this application; do not mix the two project names or replace old volumes.
 
-For frontend editing, `npm ci` then `npm run dev:web` runs Vite, proxying `/api` to a separately running backend on localhost:3000. The complete Docker route above needs no local Node installation.
+### Live frontend development
+
+With Node.js 22.12+ (or Node.js 24) and Docker installed, run:
+
+```sh
+npm ci
+docker compose -p taskroom-local -f compose.local.yaml up --build -d --wait
+npm run dev:web
+```
+
+Open http://127.0.0.1:5173. Vite serves the frontend directly from `web/`, updates the browser when you save changes, and proxies `/api` to the Docker app on port 3010. Use port 5173 while editing; port 3010 serves the frontend built into the Docker image. Backend changes still require rebuilding the app container with the Compose command above.
+
+If you run the backend directly on port 3000 instead, use `API_PROXY_TARGET=http://127.0.0.1:3000 npm run dev:web`.
+
+### Formatting
+
+Prettier formats source and configuration files with `npm run format`. Run `npm run format:check` to check formatting without changing files. Generated output and local environment files are excluded through `.prettierignore` and `.gitignore`.
+
+The complete Docker route above needs no local Node installation.
 
 ## Local checks
 
