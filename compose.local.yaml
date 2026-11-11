@@ -5,7 +5,9 @@ services:
     ports: ['127.0.0.1:3010:3000']
     environment:
       APP_ENV: local
-      AUTH_DISABLED: 'true'
+      SESSION_SECRET: local-only-session-secret-at-least-32-characters
+      PUBLIC_ORIGIN: http://127.0.0.1:3010,http://localhost:3010,http://127.0.0.1:5173,http://localhost:5173
+      COOKIE_SECURE: 'false'
       DATABASE_URL: postgres://app:localpassword@db:5432/tasks
     depends_on:
       db:

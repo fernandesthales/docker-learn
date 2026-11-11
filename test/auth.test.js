@@ -1,29 +1,45 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAuth, hashPassword } from '../src/auth.js';
+import { createHmac } from 'node:crypto';
+import { createAuth, hashPassword, verifyPassword } from '../src/auth.js';
+import { validateRegistration } from '../src/user.js';
 const env = {
   APP_ENV: 'test',
   PUBLIC_ORIGIN: 'https://board.test',
-  SESSION_SECRET: 'test-secret-longer-than-thirty-two-characters',
-  AUTH_PASSWORD_HASH: hashPassword('correct-password')
+  SESSION_SECRET: 'test-secret-longer-than-thirty-two-characters'
 };
 
-test('password verification and signed, secure session cookies', () => {
+test('password hashes and signed cookies bind sessions to users', async () => {
+  const hash = await hashPassword('correct-password');
+  assert.equal(await verifyPassword('wrong', hash), false);
+  assert.equal(await verifyPassword('correct-password', hash), true);
+  assert.notEqual(hash, await hashPassword('correct-password'));
   const auth = createAuth(env);
-  assert.equal(auth.verifyPassword('wrong'), false);
-  assert.equal(auth.verifyPassword('correct-password'), true);
-  const cookie = auth.issueCookie();
-  assert.match(cookie, /HttpOnly/);
-  assert.match(cookie, /Secure/);
-  assert.match(cookie, /SameSite=Strict/);
-  assert.equal(auth.loggedIn({ headers: { cookie } }), true);
+  const cookie = auth.issueCookie('alice');
+  for (const flag of ['HttpOnly', 'Secure', 'SameSite=Strict'])
+    assert.ok(cookie.includes(flag));
+  assert.equal(auth.userId({ headers: { cookie } }), 'alice');
   assert.equal(
-    auth.loggedIn({
+    auth.userId({
       headers: { cookie: cookie.replace('task_session=', 'task_session=x') }
     }),
-    false
+    null
   );
-  assert.equal(auth.loggedIn({ headers: {} }), false);
+  assert.equal(auth.userId({ headers: {} }), null);
+  const sign = (data) => {
+    const payload = Buffer.from(JSON.stringify(data)).toString('base64url');
+    return `task_session=${payload}.${createHmac('sha256', env.SESSION_SECRET).update(payload).digest('base64url')}`;
+  };
+  assert.equal(
+    auth.userId({
+      headers: { cookie: sign({ userId: 'alice', expires: Date.now() - 1 }) }
+    }),
+    null
+  );
+  assert.equal(
+    auth.userId({ headers: { cookie: sign({ expires: Date.now() + 10000 }) } }),
+    null
+  );
   assert.equal(
     auth.validOrigin({ headers: { origin: 'https://attacker.test' } }),
     false
@@ -34,49 +50,45 @@ test('password verification and signed, secure session cookies', () => {
   );
 });
 
-test('hosted environments fail closed without secrets and cannot bypass login', () => {
-  for (const APP_ENV of ['dev', 'stage', 'prod']) {
-    assert.throws(() => createAuth({ APP_ENV, AUTH_DISABLED: 'true' }));
+test('all environments require authentication configuration', () => {
+  for (const APP_ENV of ['local', 'test', 'dev', 'stage', 'prod']) {
+    assert.throws(() => createAuth({ ...env, APP_ENV, AUTH_DISABLED: 'true' }));
     assert.throws(() => createAuth({ APP_ENV }));
   }
 });
 
-test('HTTP login, protected tasks, origin check, and logout', async (t) => {
-  process.env.DATABASE_URL ||= 'postgres://unused:unused@127.0.0.1:1/unused';
-  const { createApp } = await import('../src/app.js');
-  const server = createApp({ env, store: { listTasks: async () => [] } });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  assert.equal((await fetch(base + '/api/tasks')).status, 401);
-  const headers = {
-    'Content-Type': 'application/json',
-    Origin: env.PUBLIC_ORIGIN
+test('profile validates and normalizes registration fields', () => {
+  const good = {
+    name: ' Alice ',
+    email: ' ALICE@example.com ',
+    password: 'long-enough-password',
+    age: 25
   };
-  const login = await fetch(base + '/api/login', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ password: 'correct-password' })
+  assert.deepEqual(validateRegistration(good), {
+    name: 'Alice',
+    email: 'alice@example.com',
+    age: 25
   });
-  assert.equal(login.status, 200);
-  const cookie = login.headers.get('set-cookie').split(';')[0];
-  assert.equal(
-    (await fetch(base + '/api/tasks', { headers: { Cookie: cookie } })).status,
-    200
-  );
-  assert.equal(
-    (
-      await fetch(base + '/api/tasks', {
-        method: 'POST',
-        headers: { ...headers, Origin: 'https://evil.test', Cookie: cookie },
-        body: '{}'
-      })
-    ).status,
-    403
-  );
-  const logout = await fetch(base + '/api/logout', {
-    method: 'POST',
-    headers: { ...headers, Cookie: cookie }
-  });
-  assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
+  for (const patch of [
+    { name: '' },
+    { email: 'bad' },
+    { password: 'tiny' },
+    { password: 'x'.repeat(257) },
+    { age: -1 },
+    { age: 151 },
+    { age: 1.5 },
+    { age: '25' }
+  ])
+    assert.throws(
+      () => validateRegistration({ ...good, ...patch }),
+      { status: 400 },
+      `Expected rejection for ${JSON.stringify(patch)}`
+    );
+
+  for (const length of [5, 256]) {
+    assert.doesNotThrow(
+      () => validateRegistration({ ...good, password: 'x'.repeat(length) }),
+      `Expected a ${length}-character password to be accepted`
+    );
+  }
 });

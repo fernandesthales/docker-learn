@@ -10,7 +10,7 @@ Requires Docker Desktop / Docker Engine with Compose v2.
 docker compose -p taskroom-local -f compose.local.yaml up --build -d
 ```
 
-Open http://localhost:3010 in two browser windows. Add a task, check it off, or delete it; the second window updates automatically. Local login is explicitly disabled and the port is bound only to localhost. This uses a new `taskroom-local` volume, not the original exercise's Dev volume.
+Open http://localhost:3010 in two browser windows. Add a task, check it off, or delete it; the second window updates automatically. Create an account with your name, email, and password. Each account sees only its own tasks; the port is bound only to localhost. This uses a new `taskroom-local` volume, not the original exercise's Dev volume.
 
 ```sh
 docker compose -p taskroom-local -f compose.local.yaml down
@@ -25,7 +25,7 @@ The named volume keeps your records. Adding `-v` deletes them.
 | `web/src/main.jsx`               | Board, login, filters, SSE client                            |
 | `web/src/style.css`              | Responsive UI                                                |
 | `src/app.js`                     | HTTP API, session routes, event stream, static frontend      |
-| `src/auth.js`                    | Shared workspace password and signed HttpOnly session cookie |
+| `src/auth.js`                    | Per-user password hashing and signed HttpOnly session cookie |
 | `src/db.js`                      | PostgreSQL connection pool and task queries                  |
 | `src/migrate.js`, `migrations/`  | Transactional, tracked schema migrations                     |
 | `Dockerfile`                     | Builds frontend, then packages backend and compiled assets   |
@@ -73,7 +73,6 @@ For real browser tests (macOS/Linux shell):
 
 ```sh
 npx playwright install chromium
-export TEST_PASSWORD_HASH=$(node --input-type=module -e "import {hashPassword} from './src/auth.js'; console.log(hashPassword('test-board-password'))")
 docker compose -p taskroom-browser-tests -f compose.browser-test.yaml up -d --wait
 npm run test:e2e
 docker compose -p taskroom-browser-tests -f compose.browser-test.yaml down --volumes
@@ -95,14 +94,24 @@ API tests verify persistence across an API process replacement against real Post
 
 ## API
 
-The frontend uses `/api/tasks`, `/api/session`, `/api/login`, `/api/logout`, `/api/events`, `/api/version`, and `/api/ready`. Original `/tasks`, `/health`, `/ready`, and `/version` paths remain available. Hosted task routes require a session cookie and mutation requests require the configured Origin. `/` now serves the frontend.
+The frontend uses `/api/tasks`, `/api/session`, `/api/login`, `/api/register`, `/api/logout`, `/api/events`, `/api/version`, and `/api/ready`. Original `/tasks`, `/health`, `/ready`, and `/version` paths remain available. Hosted task routes require a session cookie and mutation requests require the configured Origin. `/` now serves the frontend.
 
 `/health` is liveness; `/ready` queries PostgreSQL and returns 503 on connection failure. `/version` includes app version, environment, and Git revision. SSE sends invalidation notifications; clients refetch the database state on connect, reconnect, and task changes.
 
 ## Deliberate first-release boundaries
 
-One shared workspace password per environment, not individual user accounts. Sessions expire in 12 hours; logout clears the current browser cookie, while rotating SESSION_SECRET invalidates all sessions. The board is shared by everyone with its password. Login throttling is in-process and, behind a reverse proxy, may apply collectively to users; add proxy-level rate limiting for larger use.
+Individual accounts use email/password login with open self-registration. Email verification, password reset, and profile editing are not implemented. Sessions expire in 12 hours; logout clears the current browser cookie, while rotating SESSION_SECRET invalidates all sessions. Tasks and live notifications are scoped to the signed-in user. Login throttling is in-process and, behind a reverse proxy, may apply collectively to users; add proxy-level rate limiting for larger use.
 
 One API instance per environment. SSE notifications are process-local; multiple replicas would need PostgreSQL LISTEN/NOTIFY or Redis pub/sub. Deployments briefly interrupt requests, and EventSource reconnects. No zero-downtime claim.
 
 Three environments share the VPS and therefore share its capacity and outage risk. Persistence is not backup. Back up production off-server and test restoration. Application rollback never reverses schema migrations; keep schema changes backward-compatible with the previous app release.
+
+## User model and private tasks
+
+`migrations/002_users.sql` creates the `users` table: `id` (primary key), `name` (1–100 characters), unique normalized `email`, salted scrypt `password_hash`, optional integer `age` (0–150), `created_at`, and `updated_at`. Age is the value provided at registration, not an automatically calculated age. Passwords must be 5–256 characters; hashes are never returned by the API.
+
+`tasks.user_id` references `users.id`. Every task read, update, deletion, and live notification is scoped to the authenticated user. `POST /api/register` accepts `{name, email, password, age?}`; `POST /api/login` accepts `{email, password}`. Both set a signed HttpOnly session cookie and return a public user profile. `GET /api/session` returns that profile for the current account.
+
+On upgrade, old shared tasks stay in the database with `user_id = NULL` and are hidden from all accounts. An administrator can assign them to a verified owner explicitly; they are never automatically claimed by the first registrant. Old shared-password sessions are invalid. `AUTH_DISABLED` is no longer supported and `AUTH_PASSWORD_HASH` is no longer needed. Back up before upgrading; rolling back to the old shared-board app would expose account tasks and is not supported after this migration.
+
+For local development, the Compose configuration permits the localhost origins on ports 3010 and 5173. Hosted environments must keep `PUBLIC_ORIGIN` restricted to their actual HTTPS origin and use a unique `SESSION_SECRET`. To upgrade locally, rebuild with `docker compose -p taskroom-local -f compose.local.yaml up --build -d --wait`, then open Vite on port 5173 and create an account.
