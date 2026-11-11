@@ -72,13 +72,23 @@ test('profile validates and normalizes registration fields', () => {
   for (const patch of [
     { name: '' },
     { email: 'bad' },
-    { password: 'short' },
+    { password: 'tiny' },
+    { password: 'x'.repeat(257) },
     { age: -1 },
     { age: 151 },
     { age: 1.5 },
     { age: '25' }
   ])
-    assert.throws(() => validateRegistration({ ...good, ...patch }), {
-      status: 400
-    });
+    assert.throws(
+      () => validateRegistration({ ...good, ...patch }),
+      { status: 400 },
+      `Expected rejection for ${JSON.stringify(patch)}`
+    );
+
+  for (const length of [5, 256]) {
+    assert.doesNotThrow(
+      () => validateRegistration({ ...good, password: 'x'.repeat(length) }),
+      `Expected a ${length}-character password to be accepted`
+    );
+  }
 });

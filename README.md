@@ -108,7 +108,7 @@ Three environments share the VPS and therefore share its capacity and outage ris
 
 ## User model and private tasks
 
-`migrations/002_users.sql` creates the `users` table: `id` (primary key), `name` (1–100 characters), unique normalized `email`, salted scrypt `password_hash`, optional integer `age` (0–150), `created_at`, and `updated_at`. Age is the value provided at registration, not an automatically calculated age. Passwords must be 12–256 characters; hashes are never returned by the API.
+`migrations/002_users.sql` creates the `users` table: `id` (primary key), `name` (1–100 characters), unique normalized `email`, salted scrypt `password_hash`, optional integer `age` (0–150), `created_at`, and `updated_at`. Age is the value provided at registration, not an automatically calculated age. Passwords must be 5–256 characters; hashes are never returned by the API.
 
 `tasks.user_id` references `users.id`. Every task read, update, deletion, and live notification is scoped to the authenticated user. `POST /api/register` accepts `{name, email, password, age?}`; `POST /api/login` accepts `{email, password}`. Both set a signed HttpOnly session cookie and return a public user profile. `GET /api/session` returns that profile for the current account.
 

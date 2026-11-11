@@ -314,7 +314,7 @@ function App() {
                 id="password"
                 type="password"
                 autoComplete={registering ? 'new-password' : 'current-password'}
-                minLength={registering ? 12 : undefined}
+                minLength={registering ? 5 : undefined}
                 required
                 maxLength={256}
                 value={password}
