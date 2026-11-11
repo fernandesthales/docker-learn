@@ -52,10 +52,10 @@ Run `npm run secrets` on your own computer three times. Each run prints a new bo
 Configure:
 
 | Environment | APP_PORT (if available) | PUBLIC_ORIGIN (replace with your DNS names) |
-| --- | --- | --- |
-| dev | 3101 | https://dev.tasks.example.com |
-| stage | 3102 | https://stage.tasks.example.com |
-| prod | 3103 | https://tasks.example.com |
+| ----------- | ----------------------- | ------------------------------------------- |
+| dev         | 3101                    | https://dev.tasks.example.com               |
+| stage       | 3102                    | https://stage.tasks.example.com             |
+| prod        | 3103                    | https://tasks.example.com                   |
 
 PUBLIC_ORIGIN must exactly match the browser origin: HTTPS, correct hostname, no trailing slash. Use the generated hexadecimal database passwords to avoid connection-string escaping issues. Do not change POSTGRES_PASSWORD after initial database creation without also rotating the actual PostgreSQL role password.
 
@@ -89,13 +89,13 @@ Create GitHub environments named `dev`, `stage`, and `prod`. Restrict their depl
 
 Set these repository Actions secrets (or set each in all three GitHub environments):
 
-| Secret | Value |
-| --- | --- |
-| VPS_HOST | VPS hostname or IPv4 |
-| VPS_PORT | SSH port, usually 22 |
-| VPS_USER | Deployment account name |
-| VPS_SSH_KEY | Dedicated private SSH key, whose public key is authorized on the VPS |
-| VPS_KNOWN_HOSTS | Verified known_hosts entry for this server and SSH port |
+| Secret          | Value                                                                |
+| --------------- | -------------------------------------------------------------------- |
+| VPS_HOST        | VPS hostname or IPv4                                                 |
+| VPS_PORT        | SSH port, usually 22                                                 |
+| VPS_USER        | Deployment account name                                              |
+| VPS_SSH_KEY     | Dedicated private SSH key, whose public key is authorized on the VPS |
+| VPS_KNOWN_HOSTS | Verified known_hosts entry for this server and SSH port              |
 
 Obtain the host fingerprint through a trusted existing SSH/Hostinger console connection and compare before accepting a scanned key. Do not disable host-key checking. For nonstandard ports, known_hosts uses `[host]:port`.
 

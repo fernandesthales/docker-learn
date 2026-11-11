@@ -1,23 +1,24 @@
 name: Deploy to VPS
 description: Invoke the installed release script over pinned-host SSH.
+# Shared inputs used by both automatic Dev deployment and manual promotion.
 inputs:
   environment:
     required: true
     description: dev, stage or prod
   image:
-    default: ""
+    default: ''
     description: Immutable image reference (Dev only)
   revision:
-    default: ""
+    default: ''
     description: Git commit (Dev only)
   sequence:
-    default: ""
+    default: ''
     description: Build run number (Dev only)
   host:
     required: true
     description: VPS hostname or IPv4
   port:
-    default: "22"
+    default: '22'
     description: SSH port
   user:
     required: true
@@ -29,10 +30,12 @@ inputs:
     required: true
     description: Verified SSH known_hosts entry
 runs:
+  # A composite action bundles steps that run on the calling job's runner.
   using: composite
   steps:
     - name: Deploy exact release
       shell: bash
+      # Pass inputs through environment variables for use by the shell script.
       env:
         TARGET_ENV: ${{ inputs.environment }}
         IMAGE: ${{ inputs.image }}
@@ -44,22 +47,30 @@ runs:
         VPS_KEY: ${{ inputs.key }}
         VPS_KNOWN_HOSTS: ${{ inputs.known-hosts }}
       run: |
+        # Stop on failed commands, unset variables, or failures within pipelines.
         set -euo pipefail
+        # Validate connection details and the target before constructing the SSH command.
         [[ "$VPS_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
         [[ "$VPS_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]
         [[ "$VPS_PORT" =~ ^[0-9]+$ ]]
         [[ "$TARGET_ENV" =~ ^(dev|stage|prod)$ ]]
+        # Store SSH credentials temporarily and remove them when this step exits.
         private_dir=$(mktemp -d)
         trap 'rm -rf "$private_dir"' EXIT
         printf '%s\n' "$VPS_KEY" > "$private_dir/key"
         printf '%s\n' "$VPS_KNOWN_HOSTS" > "$private_dir/known_hosts"
         chmod 600 "$private_dir/key" "$private_dir/known_hosts"
+        # The release script must already be installed at this path on the VPS.
         command="/opt/taskroom/deploy/release.sh $TARGET_ENV"
+        # Dev receives an exact image digest, commit, and build sequence.
+        # Stage/Prod let the server select the previous environment's healthy release.
         if [[ "$TARGET_ENV" == dev ]]; then
           [[ "$IMAGE" =~ ^ghcr\.io/fernandesthales/docker-learn@sha256:[a-f0-9]{64}$ ]]
           [[ "$REVISION" =~ ^[a-f0-9]{40}$ && "$SEQUENCE" =~ ^[0-9]+$ ]]
           command="$command $IMAGE $REVISION $SEQUENCE"
         fi
+        # Connect without prompts, verify the server against known_hosts, and use
+        # connection timeouts and keepalives to detect an unreachable server.
         ssh -i "$private_dir/key" -p "$VPS_PORT" \
           -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
           -o UserKnownHostsFile="$private_dir/known_hosts" \

@@ -1,4 +1,5 @@
 name: Promote release
+# Start manually from Actions, choosing which environment receives the release.
 on:
   workflow_dispatch:
     inputs:
@@ -7,21 +8,28 @@ on:
         type: choice
         required: true
         options: [stage, prod]
+# Checkout needs read access; promotion does not build or publish a new image.
 permissions:
   contents: read
 jobs:
   promote:
+    # Only allow promotion from main when the repository enables deployments.
     if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Use the chosen environment's secrets and any configured approval rules.
     environment: ${{ inputs.environment }}
+    # Serialize promotions to the same target without cancelling an active release.
     concurrency:
       group: deploy-${{ inputs.environment }}
       cancel-in-progress: false
     steps:
+      # Checkout makes the shared local action available to this runner.
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      # The VPS selects the healthy Dev image for Stage, or Stage image for Prod.
+      # No image is rebuilt and no database records are copied between environments.
       - uses: ./.github/actions/vps
         with:
           environment: ${{ inputs.environment }}

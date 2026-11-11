@@ -5,25 +5,25 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "127.0.0.1:${APP_PORT:?Choose an unused local port}:3000"
+      - '127.0.0.1:${APP_PORT:?Choose an unused local port}:3000'
     environment:
       APP_ENV: ${ENVIRONMENT:?Choose dev stage or prod}
       APP_REVISION: ${RELEASE_REVISION:?Release commit is required}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set the exact HTTPS origin}
       AUTH_PASSWORD_HASH: ${AUTH_PASSWORD_HASH:?Generate an environment password}
       SESSION_SECRET: ${SESSION_SECRET:?Generate an environment session secret}
-      COOKIE_SECURE: "true"
+      COOKIE_SECURE: 'true'
       DATABASE_URL: postgres://app:${POSTGRES_PASSWORD:?Generate a database password}@db:5432/tasks
     depends_on:
       db:
         condition: service_healthy
     read_only: true
-    tmpfs: ["/tmp"]
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: ["ALL"]
+    tmpfs: ['/tmp']
+    security_opt: ['no-new-privileges:true']
+    cap_drop: ['ALL']
     logging:
       driver: json-file
-      options: { max-size: "10m", max-file: "3" }
+      options: { max-size: '10m', max-file: '3' }
   db:
     image: postgres:17
     restart: unless-stopped
@@ -31,14 +31,14 @@ services:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate a database password}
       POSTGRES_DB: tasks
-    volumes: ["db-data:/var/lib/postgresql/data"]
+    volumes: ['db-data:/var/lib/postgresql/data']
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d tasks"]
+      test: ['CMD-SHELL', 'pg_isready -U app -d tasks']
       interval: 5s
       timeout: 3s
       retries: 20
     logging:
       driver: json-file
-      options: { max-size: "10m", max-file: "3" }
+      options: { max-size: '10m', max-file: '3' }
 volumes:
   db-data:

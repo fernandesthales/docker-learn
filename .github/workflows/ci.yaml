@@ -1,9 +1,11 @@
 name: API CI
+# Test PRs targeting main and commits pushed to main.
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+# Default token access; the build job also needs permission to publish packages.
 permissions:
   contents: read
 jobs:
@@ -14,45 +16,57 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # Pass the published image digest to the deployment job.
     outputs:
       image: ${{ steps.publish.outputs.image }}
+    # Tag the local test image by commit and group Compose resources for cleanup.
     env:
       TEST_IMAGE: task-api:ci-${{ github.sha }}
       COMPOSE_PROJECT_NAME: task-api-ci
     steps:
+      # Download the source without leaving the GitHub token in Git configuration.
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      # Install locked dependencies, Chromium, and its Linux dependencies.
       - name: Install browser test tools
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      # Check shell syntax and test release/promotion behavior with mocked Docker calls.
       - name: Check deployment scripts
         run: |
           bash -n deploy/release.sh deploy/backup.sh
           node --test test/deploy.test.js
+      # Catch invalid Compose configuration before building or starting containers.
       - name: Validate test configuration
         run: docker compose -f compose.test.yaml config -q
+      # Build once and label the image with its source repository and commit.
       - name: Build application image
         run: |
           docker build \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             -t "$TEST_IMAGE" .
+      # Run tests with their database; the tests container's exit code decides success.
       - name: Run API and auth tests
         run: |
           docker compose -f compose.test.yaml up \
             --force-recreate --abort-on-container-exit --exit-code-from tests
+      # Start a separate browser-test stack, wait for readiness, then run Playwright.
+      # The generated password hash is only for this temporary test environment.
       - name: Run browser tests against the same image
         run: |
           export TEST_PASSWORD_HASH=$(node --input-type=module -e "import {hashPassword} from './src/auth.js'; console.log(hashPassword('test-board-password'))")
           docker compose -p task-api-browser -f compose.browser-test.yaml up -d --wait --wait-timeout 180
           npm run test:e2e
+      # Only main push runs authenticate to GitHub Container Registry and publish.
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      # Publish the tested image with a unique tag; deploy using its immutable digest.
       - name: Publish tested image
         id: publish
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -62,11 +76,14 @@ jobs:
           tag="sha-${GITHUB_SHA}-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           docker tag "$TEST_IMAGE" "$image_path:$tag"
           docker push "$image_path:$tag"
+          # Expose the registry digest to later jobs and display it in the run summary.
           digest=$(docker image inspect "$image_path:$tag" --format '{{index .RepoDigests 0}}')
           [[ "$digest" == "$image_path@sha256:"* ]]
           echo "image=$digest" >> "$GITHUB_OUTPUT"
           echo "### Tested release" >> "$GITHUB_STEP_SUMMARY"
           echo "\`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+      # Collect both stacks' logs after a failure. Placeholder hashes allow Compose
+      # to resolve configuration without needing the earlier shell's variables.
       - name: Failure logs
         if: failure()
         env:
@@ -74,6 +91,7 @@ jobs:
         run: |
           docker compose -f compose.test.yaml logs --no-color || true
           docker compose -p task-api-browser -f compose.browser-test.yaml logs --no-color || true
+      # Always remove temporary test containers/volumes and registry credentials.
       - name: Cleanup
         if: always()
         env:
@@ -84,11 +102,14 @@ jobs:
           docker logout ghcr.io
   deploy-dev:
     name: Deploy Dev
+    # Deploy only after successful tests/publication on main, with deployments enabled.
     needs: api-tests
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Apply the Dev environment's secrets and any configured protection rules.
     environment: dev
+    # Serialize Dev deployments without cancelling the currently running deployment.
     concurrency:
       group: deploy-dev
       cancel-in-progress: false
@@ -96,6 +117,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      # Send the exact tested image and build metadata to the shared SSH action.
       - uses: ./.github/actions/vps
         with:
           environment: dev
