@@ -648,3 +648,113 @@ main {
     gap: 8px;
   }
 }
+
+/* Detail inputs share a compact grid; task notes keep user-entered line breaks. */
+.new-task-details {
+  padding: 0 24px 18px;
+  border-bottom: 1px solid #e6eade;
+}
+.new-task-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #3d6f46;
+  padding-top: 12px;
+}
+.task-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.task-fields label,
+.task-editor > label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  color: #53634e;
+  min-width: 0;
+}
+.task-fields input,
+.task-fields select,
+.task-fields textarea,
+.task-editor > label input {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  padding: 10px;
+  border: 1px solid #cbd5c3;
+  border-radius: 6px;
+  background: #fff;
+  color: #243a2d;
+  font: inherit;
+}
+.task-fields textarea {
+  resize: vertical;
+}
+.description-field {
+  grid-column: 1 / -1;
+}
+.task-content {
+  min-width: 0;
+  padding-right: 12px;
+}
+.task-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 4px;
+}
+.priority {
+  font-size: 10px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  text-transform: capitalize;
+}
+.priority-low {
+  background: #eef4e9;
+  color: #45653b;
+}
+.priority-medium {
+  background: #f7f0dc;
+  color: #796126;
+}
+.priority-high {
+  background: #fbe9e4;
+  color: #9a4334;
+}
+.task-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #65715e;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+.task-editor {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 18px;
+  margin-top: 12px;
+  background: #fafbf8;
+  border: 1px solid #e1e6dc;
+  border-radius: 8px;
+}
+.editor-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+@media (max-width: 600px) {
+  .task-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .new-task-details {
+    padding-left: 13px;
+    padding-right: 13px;
+  }
+  .task-editor {
+    padding: 12px;
+  }
+}

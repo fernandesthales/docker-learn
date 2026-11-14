@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import * as database from './db.js';
+import { validateTask } from './task.js';
 import { createAuth, hashPassword, verifyPassword } from './auth.js';
 import { publicUser, normalizeEmail, validateRegistration } from './user.js';
 
@@ -213,17 +214,10 @@ export function createApp({ store = database, env = process.env } = {}) {
         return send(res, 200, await store.listTasks(user.id));
       if (req.method === 'POST' && path === '/tasks') {
         const body = await readJson(req);
-        if (
-          typeof body.title !== 'string' ||
-          !body.title.trim() ||
-          body.title.trim().length > 200
-        )
-          return send(res, 400, {
-            error: 'Title must contain 1–200 characters'
-          });
+        const fields = validateTask(body);
         const task = {
           id: randomUUID(),
-          title: body.title.trim(),
+          ...fields,
           completed: false,
           createdAt: new Date().toISOString()
         };
@@ -247,13 +241,8 @@ export function createApp({ store = database, env = process.env } = {}) {
           return res.end();
         }
         const body = await readJson(req);
-        if (typeof body.completed !== 'boolean')
-          return send(res, 400, { error: 'completed must be true or false' });
-        const updated = await store.updateTask(
-          task.id,
-          body.completed,
-          user.id
-        );
+        const changes = validateTask(body, { partial: true });
+        const updated = await store.updateTask(task.id, changes, user.id);
         if (!updated) return send(res, 404, { error: 'Task not found' });
         broadcast(user.id);
         return send(res, 200, updated);

@@ -39,6 +39,14 @@ test('PostgreSQL lifecycle, validation, live event and persistence across API re
       .rows[0].user_id,
     null
   );
+  assert.deepEqual(
+    (
+      await pool.query(
+        "SELECT priority, description, due_date FROM tasks WHERE id = 'legacy-task'"
+      )
+    ).rows[0],
+    { priority: 'medium', description: '', due_date: null }
+  );
   await migrate(pool); // A second startup must not recreate or clear the data.
   let running = await start();
   t.after(() => close(running.server));
@@ -109,10 +117,18 @@ test('PostgreSQL lifecycle, validation, live event and persistence across API re
   );
   const created = await request(
     `${running.base}/api/tasks`,
-    json('POST', { title: 'Persistent live task' })
+    json('POST', {
+      title: 'Persistent live task',
+      description: 'First line\nSecond line',
+      dueDate: '2028-02-29',
+      priority: 'high'
+    })
   );
   assert.equal(created.status, 201);
   const task = await created.json();
+  assert.equal(task.dueDate, '2028-02-29');
+  assert.equal(task.priority, 'high');
+  assert.equal(task.description, 'First line\nSecond line');
   const eventTimeout = setTimeout(() => streamAbort.abort(), 5000);
   try {
     assert.match(
@@ -149,7 +165,14 @@ test('PostgreSQL lifecycle, validation, live event and persistence across API re
   );
   for (const method of ['GET', 'PATCH', 'DELETE']) {
     const options =
-      method === 'PATCH' ? json(method, { completed: true }) : { method };
+      method === 'PATCH'
+        ? json(method, {
+            completed: true,
+            priority: 'low',
+            dueDate: null,
+            description: 'not allowed'
+          })
+        : { method };
     assert.equal(
       (await request(`${running.base}/api/tasks/${task.id}`, options)).status,
       404
@@ -242,12 +265,65 @@ test('PostgreSQL lifecycle, validation, live event and persistence across API re
   running = await start();
   const persisted = await request(`${running.base}/api/tasks/${task.id}`);
   assert.equal(persisted.status, 200);
-  assert.equal((await persisted.json()).title, task.title);
+  const saved = await persisted.json();
+  assert.equal(saved.title, task.title);
+  assert.equal(saved.dueDate, task.dueDate);
+  assert.equal(saved.priority, task.priority);
+  assert.equal(saved.description, task.description);
+  const listed = await (await request(`${running.base}/api/tasks`)).json();
+  assert.deepEqual(
+    listed.find((item) => item.id === task.id),
+    saved
+  );
+  for (const invalid of [
+    { dueDate: '2027-02-29' },
+    { priority: 'urgent' },
+    { description: 'x'.repeat(2001) }
+  ]) {
+    assert.equal(
+      (
+        await request(
+          `${running.base}/api/tasks`,
+          json('POST', { title: 'Invalid', ...invalid })
+        )
+      ).status,
+      400
+    );
+    assert.equal(
+      (
+        await request(
+          `${running.base}/api/tasks/${task.id}`,
+          json('PATCH', invalid)
+        )
+      ).status,
+      400
+    );
+  }
+  const changed = await request(
+    `${running.base}/api/tasks/${task.id}`,
+    json('PATCH', { description: 'Updated notes', priority: 'low' })
+  );
+  assert.equal(changed.status, 200);
+  const details = await changed.json();
+  assert.equal(details.dueDate, task.dueDate);
+  assert.equal(details.description, 'Updated notes');
+  assert.equal(details.priority, 'low');
+  const cleared = await request(
+    `${running.base}/api/tasks/${task.id}`,
+    json('PATCH', { dueDate: null, description: '' })
+  );
+  const clearedTask = await cleared.json();
+  assert.equal(clearedTask.dueDate, null);
+  assert.equal(clearedTask.description, '');
+  assert.equal(clearedTask.priority, 'low');
   const updated = await request(
     `${running.base}/api/tasks/${task.id}`,
     json('PATCH', { completed: true })
   );
-  assert.equal((await updated.json()).completed, true);
+  const completedTask = await updated.json();
+  assert.equal(completedTask.completed, true);
+  assert.equal(completedTask.priority, 'low');
+  assert.equal(completedTask.dueDate, null);
   assert.equal(
     (await (await request(`${running.base}/api/tasks/${task.id}`)).json())
       .completed,

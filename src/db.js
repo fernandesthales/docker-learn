@@ -22,6 +22,9 @@ const columns = `
   id,
   title,
   completed,
+  to_char(due_date, 'YYYY-MM-DD') AS "dueDate",
+  priority,
+  description,
   created_at AS "createdAt"
 `;
 
@@ -49,21 +52,42 @@ export async function getTask(id, userId) {
 
 export async function saveTask(task, userId) {
   await pool.query(
-    `INSERT INTO tasks (id, title, completed, created_at, user_id)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [task.id, task.title, task.completed, task.createdAt, userId]
+    `INSERT INTO tasks (id, title, completed, created_at, user_id, due_date, priority, description)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      task.id,
+      task.title,
+      task.completed,
+      task.createdAt,
+      userId,
+      task.dueDate,
+      task.priority,
+      task.description
+    ]
   );
 }
 
-export async function updateTask(id, completed, userId) {
-  const result = await pool.query(
-    `UPDATE tasks
-     SET completed = $2
-     WHERE id = $1 AND user_id = $3
-     RETURNING ${columns}`,
-    [id, completed, userId]
+export async function updateTask(id, changes, userId) {
+  // SQL identifiers come only from this allowlist; all user values are parameters.
+  // Update only submitted fields so a checkbox change cannot overwrite edited details.
+  const fields = {
+    title: 'title',
+    completed: 'completed',
+    dueDate: 'due_date',
+    priority: 'priority',
+    description: 'description'
+  };
+  const entries = Object.entries(changes).filter(([key]) =>
+    Object.hasOwn(fields, key)
   );
-
+  if (!entries.length) throw new Error('No task fields to update');
+  const assignments = entries
+    .map(([key], index) => `${fields[key]} = $${index + 3}`)
+    .join(', ');
+  const result = await pool.query(
+    `UPDATE tasks SET ${assignments} WHERE id = $1 AND user_id = $2 RETURNING ${columns}`,
+    [id, userId, ...entries.map(([, value]) => value)]
+  );
   return result.rows[0];
 }
 

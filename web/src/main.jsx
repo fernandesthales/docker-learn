@@ -23,6 +23,56 @@ async function api(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 
+// The same labeled fields are used for a new task and for editing an existing one.
+function TaskDetailsFields({ value, onChange, disabled = false }) {
+  const change = (field, next) => onChange({ ...value, [field]: next });
+  return (
+    <div className="task-fields">
+      <label>
+        Due date
+        <input
+          type="date"
+          min="0001-01-01"
+          max="9999-12-31"
+          value={value.dueDate || ''}
+          disabled={disabled}
+          onChange={(e) => change('dueDate', e.target.value || null)}
+        />
+      </label>
+      <label>
+        Priority
+        <select
+          value={value.priority}
+          disabled={disabled}
+          onChange={(e) => change('priority', e.target.value)}
+        >
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </label>
+      <label className="description-field">
+        Description
+        <textarea
+          rows={3}
+          maxLength={2000}
+          value={value.description}
+          disabled={disabled}
+          placeholder="Add notes or context (optional)"
+          onChange={(e) => change('description', e.target.value)}
+        />
+      </label>
+    </div>
+  );
+}
+const emptyDetails = { dueDate: null, priority: 'medium', description: '' };
+// Calendar dates are formatted in UTC to avoid shifting the date in other time zones.
+const formatDueDate = (date) =>
+  new Intl.DateTimeFormat('en', {
+    dateStyle: 'medium',
+    timeZone: 'UTC'
+  }).format(new Date(`${date}T00:00:00Z`));
+
 function App() {
   // null means the initial session check is pending; authenticated selects login or board.
   const [session, setSession] = useState(null);
@@ -30,6 +80,8 @@ function App() {
   const [tasks, setTasks] = useState([]);
   // Controlled inputs: React state holds the current task and account form values.
   const [title, setTitle] = useState('');
+  const [details, setDetails] = useState(emptyDetails);
+  const [editing, setEditing] = useState(null);
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -95,6 +147,8 @@ function App() {
     // Start each account with a fresh board view and fetch its own tasks.
     setTasks([]);
     setTitle('');
+    setDetails(emptyDetails);
+    setEditing(null);
     setQuery('');
     setFilter('all');
     setDeleting(null);
@@ -144,7 +198,11 @@ function App() {
         method,
         ...(body ? { body: JSON.stringify(body) } : {})
       });
-      if (key === 'create') setTitle('');
+      if (key === 'create') {
+        setTitle('');
+        setDetails(emptyDetails);
+      }
+      setEditing(null);
       setDeleting(null);
       await refresh();
     } catch (error) {
@@ -369,32 +427,42 @@ function App() {
               </section>
               <section className="board card">
                 <form
-                  className="create"
+                  className="task-create"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    mutate('create', '/tasks', 'POST', { title });
+                    mutate('create', '/tasks', 'POST', { title, ...details });
                   }}
                 >
-                  <label className="sr-only" htmlFor="new-task">
-                    New task
-                  </label>
-                  <span className="plus">+</span>
-                  <input
-                    id="new-task"
-                    placeholder="What needs to get done?"
-                    maxLength={200}
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    required
-                  />
-                  <button
-                    className="primary"
-                    aria-busy={busy === 'create'}
-                    disabled={!!busy || !title.trim()}
-                  >
-                    {busy === 'create' ? 'Adding…' : 'Add task'}
-                    <span>↗</span>
-                  </button>
+                  <div className="create">
+                    <label className="sr-only" htmlFor="new-task">
+                      New task
+                    </label>
+                    <span className="plus">+</span>
+                    <input
+                      id="new-task"
+                      placeholder="What needs to get done?"
+                      maxLength={200}
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      required
+                    />
+                    <button
+                      className="primary"
+                      aria-busy={busy === 'create'}
+                      disabled={!!busy || !title.trim()}
+                    >
+                      {busy === 'create' ? 'Adding…' : 'Add task'}
+                      <span>↗</span>
+                    </button>
+                  </div>
+                  <details className="new-task-details">
+                    <summary>Add task details</summary>
+                    <TaskDetailsFields
+                      value={details}
+                      onChange={setDetails}
+                      disabled={!!busy}
+                    />
+                  </details>
                 </form>
                 <div className="toolbar">
                   <div className="filters" aria-label="Filter tasks">
@@ -453,19 +521,56 @@ function App() {
                         className={`task ${task.completed ? 'done' : ''}`}
                         data-testid="task-row"
                       >
-                        <label className="task-title">
-                          <input
-                            type="checkbox"
-                            checked={task.completed}
+                        <div className="task-content">
+                          <label className="task-title">
+                            <input
+                              type="checkbox"
+                              checked={task.completed}
+                              disabled={!!busy}
+                              onChange={(e) =>
+                                mutate(task.id, `/tasks/${task.id}`, 'PATCH', {
+                                  completed: e.target.checked
+                                })
+                              }
+                            />
+                            <span>{task.title}</span>
+                          </label>
+                          <div className="task-metadata">
+                            <span
+                              className={`priority priority-${task.priority || 'medium'}`}
+                            >
+                              {task.priority || 'medium'} priority
+                            </span>
+                            {task.dueDate && (
+                              <time dateTime={task.dueDate}>
+                                Due {formatDueDate(task.dueDate)}
+                              </time>
+                            )}
+                          </div>
+                          {task.description && (
+                            <p className="task-description">
+                              {task.description}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            className="text-button"
                             disabled={!!busy}
-                            onChange={(e) =>
-                              mutate(task.id, `/tasks/${task.id}`, 'PATCH', {
-                                completed: e.target.checked
-                              })
-                            }
-                          />
-                          <span>{task.title}</span>
-                        </label>
+                            aria-label={`Edit ${task.title}`}
+                            onClick={() => {
+                              setDeleting(null);
+                              setEditing({
+                                id: task.id,
+                                title: task.title,
+                                dueDate: task.dueDate,
+                                priority: task.priority || 'medium',
+                                description: task.description || ''
+                              });
+                            }}
+                          >
+                            Edit details
+                          </button>
+                        </div>
                         <time dateTime={task.createdAt}>
                           {new Intl.DateTimeFormat('en', {
                             month: 'short',
@@ -502,6 +607,54 @@ function App() {
                             </button>
                           )}
                         </div>
+                        {editing?.id === task.id && (
+                          <form
+                            className="task-editor"
+                            aria-label={`Edit task: ${task.title}`}
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              const { id, ...changes } = editing;
+                              mutate(id, `/tasks/${id}`, 'PATCH', changes);
+                            }}
+                          >
+                            <label>
+                              Task title
+                              <input
+                                required
+                                maxLength={200}
+                                value={editing.title}
+                                disabled={!!busy}
+                                onChange={(e) =>
+                                  setEditing({
+                                    ...editing,
+                                    title: e.target.value
+                                  })
+                                }
+                              />
+                            </label>
+                            <TaskDetailsFields
+                              value={editing}
+                              onChange={setEditing}
+                              disabled={!!busy}
+                            />
+                            <div className="editor-actions">
+                              <button
+                                className="primary"
+                                disabled={!!busy || !editing.title.trim()}
+                              >
+                                Save changes
+                              </button>
+                              <button
+                                type="button"
+                                className="text-button"
+                                disabled={!!busy}
+                                onClick={() => setEditing(null)}
+                              >
+                                Cancel editing
+                              </button>
+                            </div>
+                          </form>
+                        )}
                       </li>
                     ))}
                   </ul>
