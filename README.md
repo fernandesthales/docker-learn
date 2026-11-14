@@ -115,3 +115,11 @@ Three environments share the VPS and therefore share its capacity and outage ris
 On upgrade, old shared tasks stay in the database with `user_id = NULL` and are hidden from all accounts. An administrator can assign them to a verified owner explicitly; they are never automatically claimed by the first registrant. Old shared-password sessions are invalid. `AUTH_DISABLED` is no longer supported and `AUTH_PASSWORD_HASH` is no longer needed. Back up before upgrading; rolling back to the old shared-board app would expose account tasks and is not supported after this migration.
 
 For local development, the Compose configuration permits the localhost origins on ports 3010 and 5173. Hosted environments must keep `PUBLIC_ORIGIN` restricted to their actual HTTPS origin and use a unique `SESSION_SECRET`. To upgrade locally, rebuild with `docker compose -p taskroom-local -f compose.local.yaml up --build -d --wait`, then open Vite on port 5173 and create an account.
+
+## Task details
+
+Tasks support an optional **due date**, **priority** (`low`, `medium`, or `high`; defaults to `medium`), and optional **description** (up to 2,000 characters). Expand **Add task details** when creating a task, or choose **Edit details** on an existing task. Saving details synchronizes across browsers signed into the same account.
+
+`POST /api/tasks` accepts `{title, dueDate?, priority?, description?}`. `PATCH /api/tasks/:id` accepts any nonempty subset of `title`, `completed`, `dueDate`, `priority`, and `description`; omitted fields remain unchanged. Send `dueDate: null` or `description: ""` to clear them. Due dates must be real calendar dates in `YYYY-MM-DD` format (years 0001–9999), with no time or timezone. Past dates are allowed. All returned tasks include the three new fields.
+
+Migration `003_task_details.sql` preserves existing tasks with no due date, medium priority, and an empty description. Existing clients that only create titles or change completion continue to work. Task ownership checks apply to every new field.

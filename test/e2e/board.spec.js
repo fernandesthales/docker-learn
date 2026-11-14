@@ -164,3 +164,77 @@ test('different accounts have private boards and retain tasks after login', asyn
     await otherContext.close();
   }
 });
+
+test('task details persist, synchronize, and can be edited or cleared on mobile', async ({
+  page,
+  browser
+}) => {
+  const context = await browser.newContext();
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const email = await register(page);
+    const second = await context.newPage();
+    await login(second, email);
+    await page.getByLabel('New task').fill('Plan the release');
+    await page.getByText('Add task details', { exact: true }).click();
+    await page.getByLabel('Due date', { exact: true }).fill('2028-02-29');
+    await page
+      .getByRole('combobox', { name: 'Priority', exact: true })
+      .selectOption('high');
+    await page
+      .getByRole('textbox', { name: 'Description', exact: true })
+      .fill('Review changes\nRun all tests');
+    await page.getByRole('button', { name: 'Add task' }).click();
+    const row = page
+      .getByTestId('task-row')
+      .filter({ hasText: 'Plan the release' });
+    const otherRow = second
+      .getByTestId('task-row')
+      .filter({ hasText: 'Plan the release' });
+    await expect(row).toContainText('high priority');
+    await expect(otherRow).toContainText('Due Feb 29, 2028');
+    await expect(otherRow).toContainText('Run all tests');
+    await page.reload();
+    await expect(row).toContainText('Due Feb 29, 2028');
+    await row
+      .getByRole('button', { name: 'Edit Plan the release', exact: true })
+      .click();
+    const editor = row.getByRole('form', {
+      name: 'Edit task: Plan the release'
+    });
+    await editor
+      .getByRole('textbox', { name: 'Description', exact: true })
+      .fill('Do not save this');
+    await editor.getByRole('button', { name: 'Cancel editing' }).click();
+    await expect(row).not.toContainText('Do not save this');
+    await row
+      .getByRole('button', { name: 'Edit Plan the release', exact: true })
+      .click();
+    await editor.getByLabel('Due date', { exact: true }).fill('');
+    await editor
+      .getByRole('combobox', { name: 'Priority', exact: true })
+      .selectOption('low');
+    await editor
+      .getByRole('textbox', { name: 'Description', exact: true })
+      .fill('');
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth
+      )
+    ).toBe(true);
+    await editor.getByRole('button', { name: 'Save changes' }).click();
+    await expect(otherRow).toContainText('low priority');
+    await expect(otherRow).not.toContainText('Due Feb');
+    await expect(otherRow).not.toContainText('Run all tests');
+    // Completion is controlled by the API response, so wait for the saved state.
+    await row.getByRole('checkbox').click();
+    await expect(row.getByRole('checkbox')).toBeChecked();
+    await expect(otherRow.getByRole('checkbox')).toBeChecked();
+    await expect(otherRow).toContainText('low priority');
+    await page.reload();
+    await expect(row).toContainText('low priority');
+    await expect(row).not.toContainText('Due Feb');
+  } finally {
+    await context.close();
+  }
+});

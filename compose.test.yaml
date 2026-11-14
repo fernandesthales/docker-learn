@@ -25,6 +25,13 @@ services:
         condition: service_healthy
     volumes:
       - ./test:/app/test:ro
-    command: ['node', '--test', 'test/api.test.js', 'test/auth.test.js']
+    command:
+      [
+        'node',
+        '--test',
+        'test/api.test.js',
+        'test/auth.test.js',
+        'test/task.test.js'
+      ]
     healthcheck:
       disable: true
